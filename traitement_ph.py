@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE ET CORRIGÉE
+TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE
 - Authentification globale requise pour accéder à l'application
 - Ajout/Suppression d'archivistes
 - Sélection d'intervalle de date (deux date_inputs)
@@ -13,7 +13,8 @@ TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE ET CORRIGÉ
 - Performances annuelles par archiviste avec jours ouvrés
 - Interface redesignée avec dégradé vert-orange et thème archives
 - Modification et suppression de saisies individuelles
-- CORRECTION: Objectif 200 dossiers/jour, atteint à 90% (180 dossiers)
+- Objectif 200 dossiers/jour, atteint à 90% (180 dossiers)
+- Modification des saisies depuis le cumul annuel
 """
 
 import streamlit as st
@@ -24,14 +25,14 @@ from io import StringIO
 import pandas as pd
 
 # ============================================================================
-# CONFIGURATION ET CONSTANTES - CORRIGÉ
+# CONFIGURATION ET CONSTANTES
 # ============================================================================
 
 class Config:
     DB_PATH = "archives_simple.sqlite"
     STOCK_INITIAL = 150000
-    OBJECTIF_JOURNALIER = 200  # CORRIGÉ: Changé de 115 à 200
-    SEUIL_OBJECTIF = 0.9  # NOUVEAU: 90% pour atteindre l'objectif (180 dossiers)
+    OBJECTIF_JOURNALIER = 200
+    SEUIL_OBJECTIF = 0.9  # 90% pour atteindre l'objectif (180 dossiers)
     MOT_DE_PASSE_ADMIN = "archives2025"
     MOT_DE_PASSE_APP = "CNA2025"
     ARCHIVISTES_DEFAULT = [
@@ -41,7 +42,7 @@ class Config:
     ]
 
 # ============================================================================
-# GESTIONNAIRE DE BASE DE DONNÉES - CORRIGÉ
+# GESTIONNAIRE DE BASE DE DONNÉES
 # ============================================================================
 
 class DatabaseManager:
@@ -83,8 +84,8 @@ class DatabaseManager:
             cursor = conn.cursor()
             params = [
                 ('stock_initial', str(Config.STOCK_INITIAL)),
-                ('objectif_journalier', str(Config.OBJECTIF_JOURNALIER)),  # CORRIGÉ: 200
-                ('seuil_objectif', str(Config.SEUIL_OBJECTIF)),  # NOUVEAU: 0.9
+                ('objectif_journalier', str(Config.OBJECTIF_JOURNALIER)),
+                ('seuil_objectif', str(Config.SEUIL_OBJECTIF)),
                 ('mot_de_passe', Config.MOT_DE_PASSE_ADMIN),
                 ('mot_de_passe_app', Config.MOT_DE_PASSE_APP)
             ]
@@ -209,6 +210,24 @@ class DatabaseManager:
             rows = cursor.fetchall()
             return [dict(zip(cols, row)) for row in rows]
 
+    def obtenir_traitements_par_archiviste(self, archiviste, date_debut=None, date_fin=None):
+        """Obtenir les traitements d'un archiviste spécifique"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            query = "SELECT * FROM traitements WHERE archiviste = ?"
+            params = [archiviste]
+            if date_debut:
+                query += " AND date_traitement >= ?"
+                params.append(date_debut)
+            if date_fin:
+                query += " AND date_traitement <= ?"
+                params.append(date_fin)
+            query += " ORDER BY date_traitement DESC"
+            cursor.execute(query, params)
+            cols = [d[0] for d in cursor.description]
+            rows = cursor.fetchall()
+            return [dict(zip(cols, row)) for row in rows]
+
     def reinitialiser_donnees(self):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -216,7 +235,7 @@ class DatabaseManager:
             conn.commit()
 
 # ============================================================================
-# CALCULATEUR DE STATISTIQUES - CORRIGÉ
+# CALCULATEUR DE STATISTIQUES
 # ============================================================================
 
 class StatisticsCalculator:
@@ -269,7 +288,7 @@ class StatisticsCalculator:
         }
 
     def calculer_performances_journalieres(self, date_ref=None):
-        """CORRIGÉ: Calcul avec logique des 90%"""
+        """Calcul avec logique des 90%"""
         if date_ref is None:
             date_ref = date.today()
         date_str = date_ref.strftime('%Y-%m-%d')
@@ -291,7 +310,7 @@ class StatisticsCalculator:
         
         total = sum(t['dossiers_traites'] for t in traitements)
         
-        # NOUVEAU CALCUL: on considère 100% à partir de 90% de l'objectif
+        # Calcul : on considère 100% à partir de 90% de l'objectif
         if total >= seuil_reussite:
             taux = (total / objectif) * 100  # Peut dépasser 100%
             objectif_atteint = True
@@ -312,7 +331,7 @@ class StatisticsCalculator:
         }
 
     def calculer_performances_hebdomadaires(self, date_ref=None):
-        """CORRIGÉ: Calcul avec logique des 90%"""
+        """Calcul avec logique des 90%"""
         if date_ref is None:
             date_ref = date.today()
         debut_semaine = date_ref - timedelta(days=date_ref.weekday())
@@ -356,7 +375,7 @@ class StatisticsCalculator:
         }
 
     def obtenir_performances_hebdo_par_archiviste(self, date_ref=None):
-        """CORRIGÉ: Calcul avec logique des 90%"""
+        """Calcul avec logique des 90%"""
         if date_ref is None:
             date_ref = date.today()
         debut_semaine = date_ref - timedelta(days=date_ref.weekday())
@@ -413,7 +432,7 @@ class StatisticsCalculator:
         return result
 
     def obtenir_performances_30j_par_archiviste(self):
-        """CORRIGÉ: Calcul avec logique des 90%"""
+        """Calcul avec logique des 90%"""
         date_fin = date.today()
         date_debut = date_fin - timedelta(days=30)
         traitements = self.db.obtenir_traitements(
@@ -464,7 +483,7 @@ class StatisticsCalculator:
         return result
 
     def obtenir_performances_annuelles_par_archiviste(self, annee=None):
-        """CORRIGÉ: Calcul avec logique des 90%"""
+        """Calcul avec logique des 90%"""
         if annee is None:
             annee = date.today().year
         
@@ -999,7 +1018,7 @@ def formulaire_saisie(db: DatabaseManager):
                     st.info(f"Aucune saisie trouvée pour l'archiviste « {archiviste_suppr_groupe} ».")
 
 def afficher_kpis_et_performances(db: DatabaseManager, stats_calc: StatisticsCalculator):
-    """CORRIGÉ: Affichage avec les nouveaux calculs"""
+    """Affichage avec les nouveaux calculs"""
     st.header("📊 Vue d'ensemble")
     kpis = stats_calc.calculer_kpis_globaux()
     perf_jour = stats_calc.calculer_performances_journalieres()
@@ -1014,7 +1033,7 @@ def afficher_kpis_et_performances(db: DatabaseManager, stats_calc: StatisticsCal
     st.markdown("---")
     st.subheader("⚡ Performances Journalières")
     
-    # CORRIGÉ: Affichage avec seuil
+    # Affichage avec seuil
     colj1, colj2, colj3, colj4 = st.columns(4)
     colj1.metric(label="Aujourd'hui", value=perf_jour['dossiers_traites'])
     colj2.metric(label="% réalisé", value=f"{perf_jour['taux_realisation']:.1f}%")
@@ -1038,7 +1057,7 @@ def afficher_kpis_et_performances(db: DatabaseManager, stats_calc: StatisticsCal
         colh4.write(f"Période : {perf_semaine['semaine']}")
 
 def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
-    """CORRIGÉ: Export avec les nouveaux calculs"""
+    """Export avec les nouveaux calculs"""
     # Générer le CSV formaté
     kpis = stats_calc.calculer_kpis_globaux()
     traitements = db.obtenir_traitements()
@@ -1054,7 +1073,7 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
     
     if jours_ecoules > 0:
         taux_journalier_reel = total_dossiers / jours_ecoules
-        # CORRIGÉ: Calcul selon la nouvelle logique
+        # Calcul selon la nouvelle logique
         if taux_journalier_reel >= seuil_journalier:
             perf_journalier_pct = (taux_journalier_reel / objectif) * 100
         else:
@@ -1074,7 +1093,7 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
 
     buffer = StringIO()
     writer = csv.writer(buffer, delimiter=';')
-    writer.writerow(["=== ANALYSE TABLEAU DE BORD SERVICE ARCHIVES (CORRIGÉ) ==="])
+    writer.writerow(["=== ANALYSE TABLEAU DE BORD SERVICE ARCHIVES ==="])
     writer.writerow([])
     writer.writerow([" ", " ", " ", " ", " ", " ", " "])  # ligne vide
     writer.writerow(["1. RÉSUMÉ GÉNÉRAL"])
@@ -1083,7 +1102,7 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
     writer.writerow(["Stock initial", f"{kpis['stock_initial']}"])
     writer.writerow(["Nombre d'archivistes", f"{nb_archivistes}"])
     writer.writerow(["Objectif journalier", f"{objectif}"])
-    writer.writerow(["Seuil d'atteinte (90%)", f"{int(seuil_journalier)}"])  # NOUVEAU
+    writer.writerow(["Seuil d'atteinte (90%)", f"{int(seuil_journalier)}"])
     writer.writerow(["Taux de réussite (%)", f"{taux_reussite:.1f}"])
     writer.writerow(["Dossiers traités total", f"{total_dossiers}"])
     writer.writerow(["Jours écoulés", f"{jours_ecoules}"])
@@ -1096,7 +1115,7 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
     writer.writerow(["Performance annuelle (%)", f"{perf_annuel_pct:.1f}"])
     writer.writerow([])
     writer.writerow([" ", " ", " ", " ", " ", " ", " "])  # vide
-    writer.writerow(["2. PERFORMANCE DES ARCHIVISTES (CORRIGÉ)"])
+    writer.writerow(["2. PERFORMANCE DES ARCHIVISTES"])
     writer.writerow([
         "Nom", "Dossiers_Traités", "Jours_Travaillés", "Taux_Journalier",
         "Objectif_Individuel", "Seuil_90%", "Performance_%", "Statut"
@@ -1172,7 +1191,7 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             st.info("Aucun traitement à afficher pour cet intervalle.")
 
     with tab2:
-        st.write("### 🌐 Performances hebdomadaires par archiviste (CORRIGÉ)")
+        st.write("### 🌐 Performances hebdomadaires par archiviste")
         stats_hebdo = stats_calc.obtenir_performances_hebdo_par_archiviste()
         if stats_hebdo:
             affichage = []
@@ -1193,7 +1212,7 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             st.info("Aucune donnée hebdomadaire pour le moment.")
 
     with tab3:
-        st.write("### 📊 Performances sur 30 derniers jours par archiviste (CORRIGÉ)")
+        st.write("### 📊 Performances sur 30 derniers jours par archiviste")
         stats_30 = stats_calc.obtenir_performances_30j_par_archiviste()
         if stats_30:
             affichage = []
@@ -1213,7 +1232,7 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             st.info("Pas assez de données pour calculer les 30 derniers jours.")
 
     with tab4:
-        st.write("### 📅 Performances sur l'année par archiviste (CORRIGÉ)")
+        st.write("### 📅 Performances sur l'année par archiviste")
         
         # Sélecteur d'année
         annee_courante = date.today().year
@@ -1259,6 +1278,110 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             df_annee = pd.DataFrame(affichage_annee)
             st.dataframe(df_annee, use_container_width=True)
             
+            # NOUVEAU: Section de modification des saisies depuis le cumul annuel
+            st.markdown("---")
+            st.subheader("✏️ Modifier des saisies depuis le cumul annuel")
+            
+            # Sélection d'un archiviste pour voir ses saisies
+            archivistes_annee = [s['archiviste'] for s in stats_annee]
+            archiviste_selectionne = st.selectbox(
+                "Sélectionner un archiviste pour voir/modifier ses saisies :",
+                options=archivistes_annee,
+                key="archiviste_cumul_annuel"
+            )
+            
+            if archiviste_selectionne:
+                # Récupérer les saisies de cet archiviste pour l'année
+                date_debut_annee = date(annee_selectee, 1, 1)
+                date_fin_annee = date(annee_selectee, 12, 31)
+                
+                saisies_archiviste = db.obtenir_traitements_par_archiviste(
+                    archiviste_selectionne,
+                    date_debut_annee.strftime('%Y-%m-%d'),
+                    date_fin_annee.strftime('%Y-%m-%d')
+                )
+                
+                if saisies_archiviste:
+                    st.write(f"**Saisies de {archiviste_selectionne} en {annee_selectee} :**")
+                    
+                    # Afficher les saisies dans un tableau avec possibilité de sélection
+                    affichage_saisies = []
+                    for s in saisies_archiviste:
+                        affichage_saisies.append({
+                            "ID": s['id'],
+                            "Date": datetime.strptime(s['date_traitement'], "%Y-%m-%d").strftime("%d/%m/%Y"),
+                            "Dossiers": s['dossiers_traites'],
+                            "Commentaire": s['commentaire'] or ""
+                        })
+                    
+                    df_saisies = pd.DataFrame(affichage_saisies)
+                    st.dataframe(df_saisies, use_container_width=True)
+                    
+                    # Sélection d'une saisie à modifier
+                    if len(saisies_archiviste) > 0:
+                        ids_saisies = [s['id'] for s in saisies_archiviste]
+                        id_saisie_modif = st.selectbox(
+                            "Choisir une saisie à modifier :",
+                            options=ids_saisies,
+                            format_func=lambda x: f"ID:{x} - {next((datetime.strptime(s['date_traitement'], '%Y-%m-%d').strftime('%d/%m/%Y') for s in saisies_archiviste if s['id'] == x), '')} - {next((s['dossiers_traites'] for s in saisies_archiviste if s['id'] == x), '')} dossiers",
+                            key="id_saisie_modif_cumul"
+                        )
+                        
+                        # Trouver la saisie sélectionnée
+                        saisie_selectionnee = next((s for s in saisies_archiviste if s['id'] == id_saisie_modif), None)
+                        
+                        if saisie_selectionnee:
+                            st.markdown("**Modifier cette saisie :**")
+                            
+                            col_modif1, col_modif2 = st.columns(2)
+                            
+                            with col_modif1:
+                                nouvelle_date_cumul = st.date_input(
+                                    "Nouvelle date :",
+                                    value=datetime.strptime(saisie_selectionnee['date_traitement'], "%Y-%m-%d").date(),
+                                    key="nouvelle_date_cumul"
+                                )
+                                
+                                nouveaux_dossiers_cumul = st.number_input(
+                                    "Nouveau nombre de dossiers :",
+                                    min_value=0,
+                                    value=saisie_selectionnee['dossiers_traites'],
+                                    step=1,
+                                    key="nouveaux_dossiers_cumul"
+                                )
+                            
+                            with col_modif2:
+                                nouveau_commentaire_cumul = st.text_area(
+                                    "Nouveau commentaire :",
+                                    value=saisie_selectionnee['commentaire'] or "",
+                                    height=100,
+                                    key="nouveau_commentaire_cumul"
+                                )
+                            
+                            if st.button("✅ Enregistrer les modifications", key="btn_modif_cumul"):
+                                try:
+                                    with sqlite3.connect(db.db_path) as conn:
+                                        cursor = conn.cursor()
+                                        cursor.execute("""
+                                            UPDATE traitements 
+                                            SET date_traitement = ?, dossiers_traites = ?, commentaire = ?
+                                            WHERE id = ?
+                                        """, (
+                                            nouvelle_date_cumul.strftime("%Y-%m-%d"),
+                                            nouveaux_dossiers_cumul,
+                                            nouveau_commentaire_cumul,
+                                            saisie_selectionnee['id']
+                                        ))
+                                        conn.commit()
+                                    
+                                    st.success(f"✅ Saisie ID:{saisie_selectionnee['id']} modifiée avec succès !")
+                                    st.rerun()  # Actualiser la page
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ Erreur lors de la modification : {e}")
+                else:
+                    st.info(f"Aucune saisie trouvée pour {archiviste_selectionne} en {annee_selectee}.")
+            
             # Option d'export pour les données annuelles
             if st.button("⬇️ Exporter performances annuelles CSV"):
                 csv_buffer = StringIO()
@@ -1288,17 +1411,17 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
 
     # Bouton d'export d'analyse complet existant
     st.markdown("---")
-    if st.button("⬇️ Exporter Analyse CSV complet (CORRIGÉ)"):
+    if st.button("⬇️ Exporter Analyse CSV complet"):
         csv_data = export_analyse(db, stats_calc)
         st.download_button(
             label="Télécharger fichier d'analyse",
             data=csv_data.encode("latin1"),
-            file_name=f"analyse_archives_corrige_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"analyse_archives_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
 
 def page_parametres(db: DatabaseManager):
-    """CORRIGÉ: Page paramètres avec seuil d'objectif"""
+    """Page paramètres avec seuil d'objectif"""
     st.header("⚙️ Paramètres de l'application")
     stock_init = db.obtenir_parametre('stock_initial')
     obj = db.obtenir_parametre('objectif_journalier')
@@ -1318,11 +1441,11 @@ def page_parametres(db: DatabaseManager):
         new_obj = st.number_input(
             "Objectif journalier :",
             min_value=0,
-            value=int(obj or 200),  # CORRIGÉ: défaut 200
+            value=int(obj or 200),
             step=10
         )
     
-    # NOUVEAU: Paramètre seuil d'objectif
+    # Paramètre seuil d'objectif
     col_seuil, col_info = st.columns([1, 2])
     with col_seuil:
         new_seuil = st.slider(
@@ -1359,7 +1482,7 @@ def page_parametres(db: DatabaseManager):
         else:
             db.mettre_a_jour_parametre('stock_initial', str(new_stock))
             db.mettre_a_jour_parametre('objectif_journalier', str(new_obj))
-            db.mettre_a_jour_parametre('seuil_objectif', str(new_seuil))  # NOUVEAU
+            db.mettre_a_jour_parametre('seuil_objectif', str(new_seuil))
             db.mettre_a_jour_parametre('mot_de_passe', new_pwd)
             db.mettre_a_jour_parametre('mot_de_passe_app', new_pwd_app)
             st.success("✅ Paramètres mis à jour.")
@@ -1433,7 +1556,7 @@ def page_archivistes(db: DatabaseManager):
                     st.error(f"❌ Impossible de supprimer : {e}")
 
 def main():
-    st.set_page_config(page_title="CNA – Tableau de Bord Archives (CORRIGÉ)", layout="wide")
+    st.set_page_config(page_title="CNA – Tableau de Bord Archives", layout="wide")
     
     # Initialiser la base de données
     db = DatabaseManager()
@@ -1446,7 +1569,7 @@ def main():
     # Si l'utilisateur est authentifié, continuer avec l'application normale
     stats_calc = StatisticsCalculator(db)
 
-    st.sidebar.title("CNA – Menu (CORRIGÉ)")
+    st.sidebar.title("CNA – Menu")
     # Ajouter un bouton de déconnexion
     if st.sidebar.button("🚪 Se déconnecter"):
         st.session_state.authenticated = False
@@ -1454,7 +1577,7 @@ def main():
     
     st.sidebar.markdown("---")
     
-    # NOUVEAU: Afficher les paramètres actuels dans la sidebar
+    # Afficher les paramètres actuels dans la sidebar
     objectif = int(db.obtenir_parametre('objectif_journalier') or 200)
     seuil = float(db.obtenir_parametre('seuil_objectif') or 0.9)
     seuil_dossiers = int(objectif * seuil)
@@ -1509,7 +1632,7 @@ def main():
         st.markdown("""
         <div class="header-container">
             <h1 class="header-title">🗃️ Centre National des Archives</h1>
-            <p class="header-subtitle">Système de Gestion Documentaire (Version Corrigée)</p>
+            <p class="header-subtitle">Système de Gestion Documentaire</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1518,14 +1641,6 @@ def main():
         <p class="welcome-text">🔥 Bienvenue dans le tableau de gestion du traitement physique 🔥</p>
         """, unsafe_allow_html=True)
         
-        # NOUVEAU: Afficher la correction apportée
-        st.success("""
-        ✅ **Version corrigée :**
-        - Objectif journalier : 200 dossiers par jour
-        - Seuil d'atteinte : 90% (180 dossiers) = objectif atteint
-        - Calculs de performance mis à jour
-        """)
-
         # Navigation avec Streamlit natif - plus fiable
         st.markdown("### 📋 Navigation Principale")
         
@@ -1572,12 +1687,12 @@ def main():
         
         with col2:
             st.success("""
-            **📈 Performances (CORRIGÉ)**
+            **📈 Performances**
             
             • Objectif : 200 dossiers/jour
             • Seuil d'atteinte : 180 dossiers (90%)
             • Analyse hebdomadaire, mensuelle, annuelle
-            • Calculs de performance corrigés
+            • Modification depuis le cumul annuel
             """)
         
         with col3:
@@ -1587,7 +1702,7 @@ def main():
             • Suivi des objectifs journaliers
             • Progression globale avec seuil 90%
             • Gestion individuelle des saisies
-            • Export des analyses corrigées
+            • Export des analyses
             """)
 
         # Métriques rapides en bas de page
