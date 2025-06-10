@@ -24,8 +24,8 @@ from datetime import datetime, timedelta, date
 from io import StringIO
 import pandas as pd
 
-def encoder_csv_securise(csv_data):
-    try:
+    def encoder_csv_securise(csv_data):
+        try:
         # Essayer d'abord UTF-8
         return csv_data.encode("utf-8")
     except UnicodeEncodeError:
