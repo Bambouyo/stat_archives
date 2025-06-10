@@ -1,25 +1,30 @@
-# ============================================================================
-# MODIFICATION DANS LA FONCTION main() - SECTION ACCUEIL
-# ============================================================================
+def main():
+    st.set_page_config(page_title="CNA – Tableau de Bord Archives", layout="wide")
+    
+    # Initialiser la base de données
+    db = DatabaseManager()
+    
+    # Vérifier l'authentification
+    if not check_authentication(db):
+        # L'utilisateur n'est pas encore authentifié, arrêter l'exécution
+        return
+    
+    # Si l'utilisateur est authentifié, continuer avec l'application normale
+    stats_calc = StatisticsCalculator(db)
 
-# Remplacer cette partie dans main() :
-    if section == "🏠 Accueil":
-        st.title("🏛️ Centre National des Archives")
-        st.markdown(
-            """
-            Bienvenue dans le tableau de bord CNA.
+    st.sidebar.title("CNA – Menu")
+    # Ajouter un bouton de déconnexion
+    if st.sidebar.button("🚪 Se déconnecter"):
+        st.session_state.authenticated = False
+        st.rerun()
+    
+    st.sidebar.markdown("---")
+    
+    section = st.sidebar.radio(
+        "Navigation",
+        ("🏠 Accueil", "➕ Nouvelle saisie", "📊 Vue d'ensemble", "📋 Détail", "⚙️ Paramètres", "👥 Archivistes")
+    )
 
-            Sélectionnez une section dans le menu latéral :
-            - ➕ Nouvelle saisie : enregistrer un traitement.
-            - 📊 Vue d'ensemble : voir les KPIs et performances.
-            - 📋 Détail : consulter l'historique des traitements.
-            - ⚙️ Paramètres : configurer stock/objectif & mot de passe.
-            - 👥 Archivistes : gérer la liste des archivistes CNA.
-            """
-        )
-        sidebar_authentication(db)
-
-# Par :
     if section == "🏠 Accueil":
         # CSS pour l'entête avec dégradé vert-orange sur fond noir
         st.markdown("""
@@ -151,14 +156,21 @@
 
         sidebar_authentication(db)
 
-# ============================================================================
-# MODIFICATION SUPPLÉMENTAIRE DANS check_authentication()
-# ============================================================================
+    elif section == "➕ Nouvelle saisie":
+        formulaire_saisie(db)
 
-# Remplacer aussi dans check_authentication() :
-    st.markdown("<h1 style='text-align: center;'>🏛️ Centre National des Archives</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center;'>Tableau de Bord - Gestion des Archives</h3>", unsafe_allow_html=True)
+    elif section == "📊 Vue d'ensemble":
+        afficher_kpis_et_performances(db, stats_calc)
 
-# Par :
-    st.markdown("<h1 style='text-align: center;'>🗃️ Centre National des Archives</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center;'>Gestion du Traitement Physique</h3>", unsafe_allow_html=True)
+    elif section == "📋 Détail":
+        afficher_tableaux(db, stats_calc)
+
+    elif section == "⚙️ Paramètres":
+        pwd = st.text_input("Entrez le mot de passe admin pour accéder aux paramètres :", type="password")
+        if pwd == db.obtenir_parametre('mot_de_passe'):
+            page_parametres(db)
+        elif pwd:
+            st.error("❌ Mot de passe incorrect.")
+
+    elif section == "👥 Archivistes":
+        page_archivistes(db)
