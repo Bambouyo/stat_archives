@@ -24,20 +24,6 @@ from datetime import datetime, timedelta, date
 from io import StringIO
 import pandas as pd
 
-    def encoder_csv_securise(csv_data):
-        try:
-        # Essayer d'abord UTF-8
-        return csv_data.encode("utf-8")
-    except UnicodeEncodeError:
-        try:
-            # Si UTF-8 échoue, essayer latin1 avec gestion d'erreurs
-            return csv_data.encode("latin1", errors="replace")
-        except:
-            # En dernier recours, forcer l'encodage
-            return csv_data.encode("ascii", errors="ignore")
-
-# Dans votre fonction afficher_tableaux :
-data = encoder_csv_securise(csv_data)
 # ============================================================================
 # CONFIGURATION ET CONSTANTES
 # ============================================================================
