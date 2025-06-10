@@ -12,6 +12,7 @@ TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE
 - Suppression de saisies par date ou par archiviste
 - Performances annuelles par archiviste avec jours ouvrés
 - Interface redesignée avec dégradé vert-orange et thème archives
+- Modification et suppression de saisies individuelles
 """
 
 import streamlit as st
@@ -549,107 +550,364 @@ def formulaire_saisie(db: DatabaseManager):
 
     st.markdown("---")
 
-    st.subheader("🔄 Choix du mode de saisie")
-    mode = st.radio("Saisir par :", ("Journalier", "Par période"), index=0)
+    # Créer des onglets pour organiser les fonctionnalités
+    tab1, tab2, tab3 = st.tabs([
+        "➕ Nouvelle saisie", 
+        "✏️ Modifier une saisie", 
+        "🗑️ Supprimer une saisie"
+    ])
 
-    if mode == "Journalier":
-        with st.form("form_journalier", clear_on_submit=True):
-            date_input = st.date_input("Date de traitement", value=date.today())
-            archivistes = db.obtenir_archivistes()
-            archiviste_sel = st.selectbox("Archiviste", options=archivistes)
-            dossiers = st.number_input("Dossiers traités", min_value=0, step=1, value=0)
-            commentaire = st.text_area("Commentaire (optionnel)", height=80)
-            submitted = st.form_submit_button("✅ Valider Journalier")
-            if submitted:
-                avertissements = []
-                if date_input.weekday() >= 5:
-                    avertissements.append("⚠️ Date en weekend (Samedi ou Dimanche)")
-                if date_input > date.today():
-                    avertissements.append("⚠️ La date est dans le futur")
-                if dossiers == 0:
-                    avertissements.append("⚠️ Aucun dossier traité")
-                if dossiers > 1000:
-                    avertissements.append("⚠️ Nombre très élevé de dossiers")
-                if avertissements:
-                    st.warning("Votre saisie comporte des points d'attention :")
-                    for msg in avertissements:
-                        st.markdown(f"- {msg}")
-                    ok = st.checkbox("Je confirme malgré les avertissements", key="ok_journalier")
-                    if not ok:
-                        st.info("Cochez la case pour confirmer malgré les avertissements.")
-                        return
-                try:
-                    db.ajouter_traitement(
-                        date_input.strftime("%Y-%m-%d"),
-                        archiviste_sel,
-                        int(dossiers),
-                        commentaire
-                    )
-                    st.success(
-                        f"✅ Traitement enregistré : {dossiers} dossiers par {archiviste_sel} "
-                        f"le {date_input.strftime('%d/%m/%Y')}"
-                    )
-                except Exception as e:
-                    st.error(f"❌ Erreur lors de l'enregistrement : {e}")
+    # ONGLET 1 : NOUVELLE SAISIE
+    with tab1:
+        st.subheader("🔄 Choix du mode de saisie")
+        mode = st.radio("Saisir par :", ("Journalier", "Par période"), index=0, key="mode_saisie")
 
-    else:  # Mode Par période
-        with st.form("form_periode", clear_on_submit=True):
-            st.markdown("**Période de saisie (jours ouvrés uniquement)**")
-            perA, perB, perC = st.columns(3)
-            with perA:
-                start_per = st.date_input(
-                    "Date début",
-                    value=date.today() - timedelta(days=7),
-                    key="start_per"
-                )
-            with perB:
-                end_per = st.date_input(
-                    "Date fin",
-                    value=date.today(),
-                    key="end_per"
-                )
-            with perC:
+        if mode == "Journalier":
+            with st.form("form_journalier", clear_on_submit=True):
+                date_input = st.date_input("Date de traitement", value=date.today())
                 archivistes = db.obtenir_archivistes()
-                archiviste_sel2 = st.selectbox("Archiviste", options=archivistes, key="arch_periode")
-            total_dossiers_per = st.number_input(
-                "Total dossiers traités sur la période",
-                min_value=0, step=1, value=0, key="total_per"
-            )
-            commentaire_per = st.text_area("Commentaire (optionnel)", height=80, key="comm_per")
-            submitted_per = st.form_submit_button("✅ Valider Période")
-            if submitted_per:
-                if start_per > end_per:
-                    st.error("La date début doit être antérieure ou égale à la date fin.")
-                    return
-                # Construire liste des jours ouvrés
-                current = start_per
-                jours_ouvres = []
-                while current <= end_per:
-                    if current.weekday() < 5:
-                        jours_ouvres.append(current)
-                    current += timedelta(days=1)
-                nb_jours = len(jours_ouvres)
-                if nb_jours == 0:
-                    st.error("Aucun jour ouvré dans cette période.")
-                    return
-                # Répartir dossiers également
-                base = total_dossiers_per // nb_jours
-                reste = total_dossiers_per % nb_jours
-                try:
-                    for i, d in enumerate(jours_ouvres):
-                        dossiers_j = base + (1 if i < reste else 0)
+                archiviste_sel = st.selectbox("Archiviste", options=archivistes)
+                dossiers = st.number_input("Dossiers traités", min_value=0, step=1, value=0)
+                commentaire = st.text_area("Commentaire (optionnel)", height=80)
+                submitted = st.form_submit_button("✅ Valider Journalier")
+                if submitted:
+                    avertissements = []
+                    if date_input.weekday() >= 5:
+                        avertissements.append("⚠️ Date en weekend (Samedi ou Dimanche)")
+                    if date_input > date.today():
+                        avertissements.append("⚠️ La date est dans le futur")
+                    if dossiers == 0:
+                        avertissements.append("⚠️ Aucun dossier traité")
+                    if dossiers > 1000:
+                        avertissements.append("⚠️ Nombre très élevé de dossiers")
+                    if avertissements:
+                        st.warning("Votre saisie comporte des points d'attention :")
+                        for msg in avertissements:
+                            st.markdown(f"- {msg}")
+                        ok = st.checkbox("Je confirme malgré les avertissements", key="ok_journalier")
+                        if not ok:
+                            st.info("Cochez la case pour confirmer malgré les avertissements.")
+                            return
+                    try:
                         db.ajouter_traitement(
-                            d.strftime("%Y-%m-%d"),
-                            archiviste_sel2,
-                            dossiers_j,
-                            commentaire_per
+                            date_input.strftime("%Y-%m-%d"),
+                            archiviste_sel,
+                            int(dossiers),
+                            commentaire
                         )
-                    st.success(
-                        f"✅ Période enregistrée : {total_dossiers_per} dossiers répartis "
-                        f"sur {nb_jours} jours ouvrés."
+                        st.success(
+                            f"✅ Traitement enregistré : {dossiers} dossiers par {archiviste_sel} "
+                            f"le {date_input.strftime('%d/%m/%Y')}"
+                        )
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de l'enregistrement : {e}")
+
+        else:  # Mode Par période
+            with st.form("form_periode", clear_on_submit=True):
+                st.markdown("**Période de saisie (jours ouvrés uniquement)**")
+                perA, perB, perC = st.columns(3)
+                with perA:
+                    start_per = st.date_input(
+                        "Date début",
+                        value=date.today() - timedelta(days=7),
+                        key="start_per"
                     )
-                except Exception as e:
-                    st.error(f"❌ Erreur lors de l'enregistrement des entrées : {e}")
+                with perB:
+                    end_per = st.date_input(
+                        "Date fin",
+                        value=date.today(),
+                        key="end_per"
+                    )
+                with perC:
+                    archivistes = db.obtenir_archivistes()
+                    archiviste_sel2 = st.selectbox("Archiviste", options=archivistes, key="arch_periode")
+                total_dossiers_per = st.number_input(
+                    "Total dossiers traités sur la période",
+                    min_value=0, step=1, value=0, key="total_per"
+                )
+                commentaire_per = st.text_area("Commentaire (optionnel)", height=80, key="comm_per")
+                submitted_per = st.form_submit_button("✅ Valider Période")
+                if submitted_per:
+                    if start_per > end_per:
+                        st.error("La date début doit être antérieure ou égale à la date fin.")
+                        return
+                    # Construire liste des jours ouvrés
+                    current = start_per
+                    jours_ouvres = []
+                    while current <= end_per:
+                        if current.weekday() < 5:
+                            jours_ouvres.append(current)
+                        current += timedelta(days=1)
+                    nb_jours = len(jours_ouvres)
+                    if nb_jours == 0:
+                        st.error("Aucun jour ouvré dans cette période.")
+                        return
+                    # Répartir dossiers également
+                    base = total_dossiers_per // nb_jours
+                    reste = total_dossiers_per % nb_jours
+                    try:
+                        for i, d in enumerate(jours_ouvres):
+                            dossiers_j = base + (1 if i < reste else 0)
+                            db.ajouter_traitement(
+                                d.strftime("%Y-%m-%d"),
+                                archiviste_sel2,
+                                dossiers_j,
+                                commentaire_per
+                            )
+                        st.success(
+                            f"✅ Période enregistrée : {total_dossiers_per} dossiers répartis "
+                            f"sur {nb_jours} jours ouvrés."
+                        )
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de l'enregistrement des entrées : {e}")
+
+    # ONGLET 2 : MODIFIER UNE SAISIE
+    with tab2:
+        st.subheader("✏️ Modifier une saisie existante")
+        
+        # Filtres pour rechercher la saisie à modifier
+        col_search1, col_search2 = st.columns(2)
+        with col_search1:
+            date_recherche = st.date_input(
+                "Date de la saisie à modifier",
+                value=date.today(),
+                key="date_recherche_modif"
+            )
+        with col_search2:
+            archivistes_all = ["Tous"] + db.obtenir_archivistes(actifs_seulement=False)
+            archiviste_filtre = st.selectbox(
+                "Filtrer par archiviste",
+                options=archivistes_all,
+                key="archiviste_filtre_modif"
+            )
+        
+        # Rechercher les saisies
+        date_str = date_recherche.strftime('%Y-%m-%d')
+        traitements_jour = db.obtenir_traitements(date_str, date_str)
+        
+        if archiviste_filtre != "Tous":
+            traitements_jour = [t for t in traitements_jour if t['archiviste'] == archiviste_filtre]
+        
+        if traitements_jour:
+            st.write(f"**Saisies trouvées pour le {date_recherche.strftime('%d/%m/%Y')} :**")
+            
+            # Afficher les saisies sous forme de sélection
+            saisies_options = []
+            for t in traitements_jour:
+                option = f"ID:{t['id']} - {t['archiviste']} - {t['dossiers_traites']} dossiers"
+                if t['commentaire']:
+                    option += f" - ({t['commentaire'][:50]}...)" if len(t['commentaire']) > 50 else f" - ({t['commentaire']})"
+                saisies_options.append((option, t))
+            
+            if saisies_options:
+                saisie_selectionnee = st.selectbox(
+                    "Choisir la saisie à modifier :",
+                    options=[opt[0] for opt in saisies_options],
+                    key="saisie_a_modifier"
+                )
+                
+                # Trouver la saisie correspondante
+                traitement_a_modifier = None
+                for opt in saisies_options:
+                    if opt[0] == saisie_selectionnee:
+                        traitement_a_modifier = opt[1]
+                        break
+                
+                if traitement_a_modifier:
+                    st.markdown("---")
+                    st.write("**Modifier les informations :**")
+                    
+                    with st.form("form_modification"):
+                        # Pré-remplir avec les valeurs actuelles
+                        nouvelle_date = st.date_input(
+                            "Nouvelle date :",
+                            value=datetime.strptime(traitement_a_modifier['date_traitement'], "%Y-%m-%d").date(),
+                            key="nouvelle_date_modif"
+                        )
+                        
+                        archivistes_modif = db.obtenir_archivistes()
+                        index_archiviste = 0
+                        if traitement_a_modifier['archiviste'] in archivistes_modif:
+                            index_archiviste = archivistes_modif.index(traitement_a_modifier['archiviste'])
+                        
+                        nouvel_archiviste = st.selectbox(
+                            "Nouvel archiviste :",
+                            options=archivistes_modif,
+                            index=index_archiviste,
+                            key="nouvel_archiviste_modif"
+                        )
+                        
+                        nouveaux_dossiers = st.number_input(
+                            "Nouveau nombre de dossiers :",
+                            min_value=0,
+                            value=traitement_a_modifier['dossiers_traites'],
+                            step=1,
+                            key="nouveaux_dossiers_modif"
+                        )
+                        
+                        nouveau_commentaire = st.text_area(
+                            "Nouveau commentaire :",
+                            value=traitement_a_modifier['commentaire'] or "",
+                            height=80,
+                            key="nouveau_commentaire_modif"
+                        )
+                        
+                        submitted_modif = st.form_submit_button("✅ Enregistrer les modifications")
+                        
+                        if submitted_modif:
+                            try:
+                                with sqlite3.connect(db.db_path) as conn:
+                                    cursor = conn.cursor()
+                                    cursor.execute("""
+                                        UPDATE traitements 
+                                        SET date_traitement = ?, archiviste = ?, dossiers_traites = ?, commentaire = ?
+                                        WHERE id = ?
+                                    """, (
+                                        nouvelle_date.strftime("%Y-%m-%d"),
+                                        nouvel_archiviste,
+                                        nouveaux_dossiers,
+                                        nouveau_commentaire,
+                                        traitement_a_modifier['id']
+                                    ))
+                                    conn.commit()
+                                
+                                st.success(f"✅ Saisie ID:{traitement_a_modifier['id']} modifiée avec succès !")
+                                st.rerun()  # Actualiser la page
+                                
+                            except Exception as e:
+                                st.error(f"❌ Erreur lors de la modification : {e}")
+        else:
+            st.info("Aucune saisie trouvée pour cette date et ces critères.")
+
+    # ONGLET 3 : SUPPRIMER UNE SAISIE
+    with tab3:
+        st.subheader("🗑️ Supprimer une saisie spécifique")
+        
+        # Filtres pour rechercher la saisie à supprimer
+        col_search3, col_search4 = st.columns(2)
+        with col_search3:
+            date_recherche_suppr = st.date_input(
+                "Date de la saisie à supprimer",
+                value=date.today(),
+                key="date_recherche_suppr"
+            )
+        with col_search4:
+            archivistes_all_suppr = ["Tous"] + db.obtenir_archivistes(actifs_seulement=False)
+            archiviste_filtre_suppr = st.selectbox(
+                "Filtrer par archiviste",
+                options=archivistes_all_suppr,
+                key="archiviste_filtre_suppr"
+            )
+        
+        # Rechercher les saisies
+        date_str_suppr = date_recherche_suppr.strftime('%Y-%m-%d')
+        traitements_jour_suppr = db.obtenir_traitements(date_str_suppr, date_str_suppr)
+        
+        if archiviste_filtre_suppr != "Tous":
+            traitements_jour_suppr = [t for t in traitements_jour_suppr if t['archiviste'] == archiviste_filtre_suppr]
+        
+        if traitements_jour_suppr:
+            st.write(f"**Saisies trouvées pour le {date_recherche_suppr.strftime('%d/%m/%Y')} :**")
+            
+            # Afficher les saisies sous forme de tableau
+            affichage_suppr = []
+            for t in traitements_jour_suppr:
+                affichage_suppr.append({
+                    "ID": t['id'],
+                    "Archiviste": t['archiviste'],
+                    "Dossiers": t['dossiers_traites'],
+                    "Commentaire": t['commentaire'] or ""
+                })
+            
+            df_suppr = pd.DataFrame(affichage_suppr)
+            st.dataframe(df_suppr, use_container_width=True)
+            
+            # Sélection de la saisie à supprimer
+            ids_disponibles = [t['id'] for t in traitements_jour_suppr]
+            id_a_supprimer = st.selectbox(
+                "Choisir l'ID de la saisie à supprimer :",
+                options=ids_disponibles,
+                key="id_a_supprimer"
+            )
+            
+            # Trouver les détails de la saisie sélectionnée
+            saisie_a_supprimer = next((t for t in traitements_jour_suppr if t['id'] == id_a_supprimer), None)
+            
+            if saisie_a_supprimer:
+                st.warning(f"""
+                **Attention !** Vous êtes sur le point de supprimer :
+                - **ID :** {saisie_a_supprimer['id']}
+                - **Date :** {datetime.strptime(saisie_a_supprimer['date_traitement'], "%Y-%m-%d").strftime('%d/%m/%Y')}
+                - **Archiviste :** {saisie_a_supprimer['archiviste']}
+                - **Dossiers :** {saisie_a_supprimer['dossiers_traites']}
+                - **Commentaire :** {saisie_a_supprimer['commentaire'] or 'Aucun'}
+                """)
+                
+                confirmation = st.checkbox(
+                    f"⚠️ Je confirme vouloir supprimer définitivement la saisie ID:{id_a_supprimer}",
+                    key="confirmation_suppression"
+                )
+                
+                if confirmation:
+                    if st.button("🗑️ Supprimer définitivement", type="secondary"):
+                        try:
+                            with sqlite3.connect(db.db_path) as conn:
+                                cursor = conn.cursor()
+                                cursor.execute("DELETE FROM traitements WHERE id = ?", (id_a_supprimer,))
+                                conn.commit()
+                            
+                            st.success(f"✅ Saisie ID:{id_a_supprimer} supprimée avec succès !")
+                            st.rerun()  # Actualiser la page
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erreur lors de la suppression : {e}")
+        else:
+            st.info("Aucune saisie trouvée pour cette date et ces critères.")
+        
+        # Section de suppression groupée (comme avant)
+        st.markdown("---")
+        st.subheader("🗑️ Suppression groupée")
+        
+        col_group1, col_group2 = st.columns(2)
+        
+        with col_group1:
+            st.markdown("**Supprimer toutes les saisies d'une date :**")
+            date_suppr_groupe = st.date_input(
+                "Date à supprimer complètement :",
+                value=date.today(),
+                key="date_suppr_groupe"
+            )
+            if st.button("🗑️ Supprimer toute la date", key="btn_suppr_date"):
+                date_str_groupe = date_suppr_groupe.strftime("%Y-%m-%d")
+                with sqlite3.connect(db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM traitements WHERE date_traitement = ?", (date_str_groupe,))
+                    n = cursor.rowcount
+                    conn.commit()
+                if n > 0:
+                    st.success(f"✅ {n} saisie(s) supprimée(s) pour le {date_suppr_groupe.strftime('%d/%m/%Y')}.")
+                else:
+                    st.info(f"Aucune saisie trouvée pour le {date_suppr_groupe.strftime('%d/%m/%Y')}.")
+        
+        with col_group2:
+            st.markdown("**Supprimer toutes les saisies d'un archiviste :**")
+            archivistes_suppr_groupe = db.obtenir_archivistes(actifs_seulement=False)
+            noms_suppr = [a[0] for a in archivistes_suppr_groupe]
+            archiviste_suppr_groupe = st.selectbox(
+                "Archiviste à supprimer :",
+                options=noms_suppr,
+                key="archiviste_suppr_groupe"
+            )
+            if st.button("🗑️ Supprimer tout l'archiviste", key="btn_suppr_archiviste"):
+                with sqlite3.connect(db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM traitements WHERE archiviste = ?", (archiviste_suppr_groupe,))
+                    n2 = cursor.rowcount
+                    conn.commit()
+                if n2 > 0:
+                    st.success(f"✅ {n2} saisie(s) supprimée(s) pour l'archiviste « {archiviste_suppr_groupe} ».")
+                else:
+                    st.info(f"Aucune saisie trouvée pour l'archiviste « {archiviste_suppr_groupe} ».")
 
 def afficher_kpis_et_performances(db: DatabaseManager, stats_calc: StatisticsCalculator):
     st.header("📊 Vue d'ensemble")
@@ -798,59 +1056,6 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             )
         else:
             st.info("Aucun traitement à afficher pour cet intervalle.")
-
-        # ──────────────────────────────────────────────────────────────────────
-        # FORMULAIRE DE SUPPRESSION
-        st.markdown("---")
-        st.subheader("❌ Supprimer des saisies")
-
-        # 1. Suppression par date unique
-        with st.expander("Supprimer toutes les saisies d'une date précise"):
-            date_suppr = st.date_input(
-                "Quelle date supprimer ?",
-                value=date.today(),
-                key="date_suppr"
-            )
-            if st.button("🗑️ Supprimer par date"):
-                date_str = date_suppr.strftime("%Y-%m-%d")
-                with sqlite3.connect(db.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "DELETE FROM traitements WHERE date_traitement = ?",
-                        (date_str,)
-                    )
-                    n = cursor.rowcount
-                    conn.commit()
-                if n > 0:
-                    st.success(f"✅ {n} enregistrement(s) supprimé(s) pour le {date_str}.")
-                else:
-                    st.info(f"Aucun enregistrement trouvé pour le {date_str}.")
-
-        st.markdown("—")
-
-        # 2. Suppression par nom de l'archiviste
-        with st.expander("Supprimer toutes les saisies d'un archiviste"):
-            archivistes = db.obtenir_archivistes(actifs_seulement=False)
-            noms = [a[0] for a in archivistes]
-            choix_arch = st.selectbox(
-                "Quel archiviste supprimer ?",
-                options=noms,
-                key="archiviste_suppr"
-            )
-            if st.button("🗑️ Supprimer par archiviste"):
-                with sqlite3.connect(db.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "DELETE FROM traitements WHERE archiviste = ?",
-                        (choix_arch,)
-                    )
-                    n2 = cursor.rowcount
-                    conn.commit()
-                if n2 > 0:
-                    st.success(f"✅ {n2} enregistrement(s) supprimé(s) pour l'archiviste « {choix_arch} ».")
-                else:
-                    st.info(f"Aucun enregistrement trouvé pour l'archiviste « {choix_arch} ».")
-        # ──────────────────────────────────────────────────────────────────────
 
     with tab2:
         st.write("### 🌐 Performances hebdomadaires par archiviste")
@@ -1191,7 +1396,7 @@ def main():
         with col1:
             st.markdown("""
             **➕ Nouvelle saisie**  
-            📝 Enregistrer un traitement de dossiers physiques
+            📝 Enregistrer, modifier ou supprimer des traitements de dossiers physiques
             
             **📊 Vue d'ensemble**  
             📈 Consulter les KPIs et performances globales
@@ -1221,6 +1426,7 @@ def main():
             **📁 Traitement Physique**
             
             • Saisie journalière ou par période
+            • Modification et suppression de saisies
             • Calcul automatique des jours ouvrés
             • Suivi en temps réel des dossiers traités
             """)
@@ -1232,6 +1438,7 @@ def main():
             • Analyse hebdomadaire, mensuelle, annuelle
             • Classement des archivistes
             • Tableaux de bord détaillés
+            • Export des analyses
             """)
         
         with col3:
@@ -1240,7 +1447,8 @@ def main():
             
             • Suivi des objectifs journaliers
             • Progression globale
-            • Export des analyses
+            • Gestion individuelle des saisies
+            • Suppression groupée ou individuelle
             """)
 
         # Métriques rapides en bas de page
