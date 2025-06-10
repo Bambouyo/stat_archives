@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE
+TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE ET CORRIGÉE
 - Authentification globale requise pour accéder à l'application
 - Ajout/Suppression d'archivistes
 - Sélection d'intervalle de date (deux date_inputs)
@@ -13,6 +13,7 @@ TABLEAU DE BORD GESTION DES ARCHIVES - VERSION STREAMLIT AMÉLIORÉE
 - Performances annuelles par archiviste avec jours ouvrés
 - Interface redesignée avec dégradé vert-orange et thème archives
 - Modification et suppression de saisies individuelles
+- CORRECTION: Objectif 200 dossiers/jour, atteint à 90% (180 dossiers)
 """
 
 import streamlit as st
@@ -23,15 +24,16 @@ from io import StringIO
 import pandas as pd
 
 # ============================================================================
-# CONFIGURATION ET CONSTANTES
+# CONFIGURATION ET CONSTANTES - CORRIGÉ
 # ============================================================================
 
 class Config:
     DB_PATH = "archives_simple.sqlite"
     STOCK_INITIAL = 150000
-    OBJECTIF_JOURNALIER = 115
+    OBJECTIF_JOURNALIER = 200  # CORRIGÉ: Changé de 115 à 200
+    SEUIL_OBJECTIF = 0.9  # NOUVEAU: 90% pour atteindre l'objectif (180 dossiers)
     MOT_DE_PASSE_ADMIN = "archives2025"
-    MOT_DE_PASSE_APP = "CNA2025"  # Nouveau mot de passe pour l'application
+    MOT_DE_PASSE_APP = "CNA2025"
     ARCHIVISTES_DEFAULT = [
         "ABDOU DIATTA", "ALPHONSE K DIOUF", "AMINATA NDIAYE",
         "BERNARD B OGUIKI", "FATIM MBAYE", "JOSEPH M N DIOUF",
@@ -39,7 +41,7 @@ class Config:
     ]
 
 # ============================================================================
-# GESTIONNAIRE DE BASE DE DONNÉES
+# GESTIONNAIRE DE BASE DE DONNÉES - CORRIGÉ
 # ============================================================================
 
 class DatabaseManager:
@@ -81,7 +83,8 @@ class DatabaseManager:
             cursor = conn.cursor()
             params = [
                 ('stock_initial', str(Config.STOCK_INITIAL)),
-                ('objectif_journalier', str(Config.OBJECTIF_JOURNALIER)),
+                ('objectif_journalier', str(Config.OBJECTIF_JOURNALIER)),  # CORRIGÉ: 200
+                ('seuil_objectif', str(Config.SEUIL_OBJECTIF)),  # NOUVEAU: 0.9
                 ('mot_de_passe', Config.MOT_DE_PASSE_ADMIN),
                 ('mot_de_passe_app', Config.MOT_DE_PASSE_APP)
             ]
@@ -213,7 +216,7 @@ class DatabaseManager:
             conn.commit()
 
 # ============================================================================
-# CALCULATEUR DE STATISTIQUES
+# CALCULATEUR DE STATISTIQUES - CORRIGÉ
 # ============================================================================
 
 class StatisticsCalculator:
@@ -266,31 +269,50 @@ class StatisticsCalculator:
         }
 
     def calculer_performances_journalieres(self, date_ref=None):
+        """CORRIGÉ: Calcul avec logique des 90%"""
         if date_ref is None:
             date_ref = date.today()
         date_str = date_ref.strftime('%Y-%m-%d')
         traitements = self.db.obtenir_traitements(date_str, date_str)
-        objectif = int(self.db.obtenir_parametre('objectif_journalier') or 0)
+        objectif = int(self.db.obtenir_parametre('objectif_journalier') or 200)
+        seuil_objectif = float(self.db.obtenir_parametre('seuil_objectif') or 0.9)
+        seuil_reussite = objectif * seuil_objectif  # 90% de l'objectif = réussite
+        
         if not traitements:
             return {
                 'date': date_ref,
                 'dossiers_traites': 0,
                 'objectif': objectif,
+                'seuil_reussite': int(seuil_reussite),
                 'taux_realisation': 0.0,
-                'ecart': -objectif
+                'objectif_atteint': False,
+                'ecart': -int(seuil_reussite)
             }
+        
         total = sum(t['dossiers_traites'] for t in traitements)
-        taux = (total / objectif) * 100 if objectif > 0 else 0
-        ecart = total - objectif
+        
+        # NOUVEAU CALCUL: on considère 100% à partir de 90% de l'objectif
+        if total >= seuil_reussite:
+            taux = (total / objectif) * 100  # Peut dépasser 100%
+            objectif_atteint = True
+        else:
+            taux = (total / seuil_reussite) * 90  # Échelle jusqu'à 90%
+            objectif_atteint = False
+        
+        ecart = total - seuil_reussite
+        
         return {
             'date': date_ref,
             'dossiers_traites': total,
             'objectif': objectif,
+            'seuil_reussite': int(seuil_reussite),
             'taux_realisation': round(taux, 2),
-            'ecart': ecart
+            'objectif_atteint': objectif_atteint,
+            'ecart': int(ecart)
         }
 
     def calculer_performances_hebdomadaires(self, date_ref=None):
+        """CORRIGÉ: Calcul avec logique des 90%"""
         if date_ref is None:
             date_ref = date.today()
         debut_semaine = date_ref - timedelta(days=date_ref.weekday())
@@ -299,24 +321,42 @@ class StatisticsCalculator:
             debut_semaine.strftime('%Y-%m-%d'),
             fin_semaine.strftime('%Y-%m-%d')
         )
-        objectif_hebdo = int(self.db.obtenir_parametre('objectif_journalier') or 0) * 5
+        objectif_journalier = int(self.db.obtenir_parametre('objectif_journalier') or 200)
+        seuil_objectif = float(self.db.obtenir_parametre('seuil_objectif') or 0.9)
+        objectif_hebdo = objectif_journalier * 5  # 5 jours ouvrés
+        seuil_hebdo = objectif_hebdo * seuil_objectif  # 90% de l'objectif hebdo
+        
         if not traitements:
             return {
                 'semaine': f"{debut_semaine.strftime('%d/%m')} - {fin_semaine.strftime('%d/%m/%Y')}",
                 'dossiers_traites': 0,
                 'objectif': objectif_hebdo,
-                'taux_realisation': 0.0
+                'seuil_reussite': int(seuil_hebdo),
+                'taux_realisation': 0.0,
+                'objectif_atteint': False
             }
+        
         total = sum(t['dossiers_traites'] for t in traitements)
-        taux = (total / objectif_hebdo) * 100 if objectif_hebdo > 0 else 0
+        
+        # Même logique que journalier
+        if total >= seuil_hebdo:
+            taux = (total / objectif_hebdo) * 100  # Peut dépasser 100%
+            objectif_atteint = True
+        else:
+            taux = (total / seuil_hebdo) * 90
+            objectif_atteint = False
+        
         return {
             'semaine': f"{debut_semaine.strftime('%d/%m')} - {fin_semaine.strftime('%d/%m/%Y')}",
             'dossiers_traites': total,
             'objectif': objectif_hebdo,
-            'taux_realisation': round(taux, 2)
+            'seuil_reussite': int(seuil_hebdo),
+            'taux_realisation': round(taux, 2),
+            'objectif_atteint': objectif_atteint
         }
 
     def obtenir_performances_hebdo_par_archiviste(self, date_ref=None):
+        """CORRIGÉ: Calcul avec logique des 90%"""
         if date_ref is None:
             date_ref = date.today()
         debut_semaine = date_ref - timedelta(days=date_ref.weekday())
@@ -327,32 +367,53 @@ class StatisticsCalculator:
         )
         if not traitements:
             return []
+            
         stats = {}
         for t in traitements:
             arch = t['archiviste']
             stats.setdefault(arch, []).append(t['date_traitement'])
+        
         result = []
-        objectif_journalier = int(self.db.obtenir_parametre('objectif_journalier') or 0)
+        objectif_journalier = int(self.db.obtenir_parametre('objectif_journalier') or 200)
+        seuil_objectif = float(self.db.obtenir_parametre('seuil_objectif') or 0.9)
         objectif_hebdo = objectif_journalier * 5
+        seuil_hebdo = objectif_hebdo * seuil_objectif
+        
         for arch, dates in stats.items():
             total = sum(
                 t['dossiers_traites'] for t in traitements if t['archiviste'] == arch
             )
             jours_ouvres = self._jours_ouvres(dates)
-            taux = (total / objectif_hebdo) * 100 if objectif_hebdo > 0 else 0
+            
+            # Calculer le taux selon la nouvelle logique
+            if total >= seuil_hebdo:
+                taux = (total / objectif_hebdo) * 100  # Peut dépasser 100%
+                statut = "🟢 Objectif atteint"
+            else:
+                taux = (total / seuil_hebdo) * 90
+                if taux >= 80:
+                    statut = "🟡 Proche objectif"
+                else:
+                    statut = "🔴 En retard"
+            
             moy = (total / jours_ouvres) if jours_ouvres > 0 else 0
+            
             result.append({
                 'archiviste': arch,
                 'total_dossiers': total,
                 'jours_travailles': jours_ouvres,
                 'moyenne_jour': round(moy, 1),
                 'taux_hebdo': round(taux, 1),
-                'objectif_hebdo': objectif_hebdo
+                'objectif_hebdo': objectif_hebdo,
+                'seuil_reussite': int(seuil_hebdo),
+                'statut': statut
             })
+        
         result.sort(key=lambda x: x['taux_hebdo'], reverse=True)
         return result
 
     def obtenir_performances_30j_par_archiviste(self):
+        """CORRIGÉ: Calcul avec logique des 90%"""
         date_fin = date.today()
         date_debut = date_fin - timedelta(days=30)
         traitements = self.db.obtenir_traitements(
@@ -361,30 +422,49 @@ class StatisticsCalculator:
         )
         if not traitements:
             return []
+            
         stats = {}
         for t in traitements:
             arch = t['archiviste']
             stats.setdefault(arch, []).append(t['date_traitement'])
+        
         result = []
-        objectif = int(self.db.obtenir_parametre('objectif_journalier') or 0)
+        objectif = int(self.db.obtenir_parametre('objectif_journalier') or 200)
+        seuil_objectif = float(self.db.obtenir_parametre('seuil_objectif') or 0.9)
+        seuil_journalier = objectif * seuil_objectif  # 180 dossiers pour atteindre l'objectif
+        
         for arch, dates in stats.items():
             total = sum(
                 t['dossiers_traites'] for t in traitements if t['archiviste'] == arch
             )
             jours_ouvres = self._jours_ouvres(dates)
             moy = (total / jours_ouvres) if jours_ouvres > 0 else 0
-            taux_obj = (moy / objectif) * 100 if objectif > 0 else 0
+            
+            # Calculer selon la nouvelle logique
+            if moy >= seuil_journalier:
+                taux_obj = (moy / objectif) * 100  # Peut dépasser 100%
+                statut = "🟢 Objectif atteint"
+            else:
+                taux_obj = (moy / seuil_journalier) * 90
+                if taux_obj >= 80:
+                    statut = "🟡 Proche objectif"
+                else:
+                    statut = "🔴 En retard"
+            
             result.append({
                 'archiviste': arch,
                 'total_dossiers': total,
                 'jours_travailles': jours_ouvres,
                 'moyenne_jour': round(moy, 1),
-                'taux_objectif': round(taux_obj, 1)
+                'taux_objectif': round(taux_obj, 1),
+                'seuil_journalier': int(seuil_journalier),
+                'statut': statut
             })
+        
         return result
 
     def obtenir_performances_annuelles_par_archiviste(self, annee=None):
-        """Calcule les performances de chaque archiviste sur une année complète"""
+        """CORRIGÉ: Calcul avec logique des 90%"""
         if annee is None:
             annee = date.today().year
         
@@ -399,29 +479,37 @@ class StatisticsCalculator:
         if not traitements:
             return []
         
-        # Grouper par archiviste
         stats = {}
         for t in traitements:
             arch = t['archiviste']
             stats.setdefault(arch, []).append(t['date_traitement'])
         
         result = []
-        objectif_journalier = int(self.db.obtenir_parametre('objectif_journalier') or 0)
+        objectif_journalier = int(self.db.obtenir_parametre('objectif_journalier') or 200)
+        seuil_objectif = float(self.db.obtenir_parametre('seuil_objectif') or 0.9)
+        seuil_journalier = objectif_journalier * seuil_objectif  # 180 dossiers
         
         for arch, dates in stats.items():
-            # Calculer le total de dossiers pour cet archiviste
             total = sum(
                 t['dossiers_traites'] for t in traitements if t['archiviste'] == arch
             )
             
-            # Calculer le nombre de jours ouvrés travaillés
             jours_ouvres = self._jours_ouvres(dates)
-            
-            # Calculer les moyennes et pourcentages
             moyenne_jour = (total / jours_ouvres) if jours_ouvres > 0 else 0
-            taux_objectif = (moyenne_jour / objectif_journalier) * 100 if objectif_journalier > 0 else 0
             
-            # Calculer le nombre total de jours ouvrés dans l'année pour avoir un pourcentage global
+            # Calculer selon la nouvelle logique
+            if moyenne_jour >= seuil_journalier:
+                taux_objectif = (moyenne_jour / objectif_journalier) * 100  # Peut dépasser 100%
+                statut = "🟢 Excellent"
+            else:
+                taux_objectif = (moyenne_jour / seuil_journalier) * 90
+                if taux_objectif >= 80:
+                    statut = "🟡 Correct"
+                elif taux_objectif >= 60:
+                    statut = "🟠 Moyen"
+                else:
+                    statut = "🔴 Insuffisant"
+            
             jours_ouvres_annee = self._calculer_jours_ouvres_annee(annee)
             couverture_annee = (jours_ouvres / jours_ouvres_annee) * 100 if jours_ouvres_annee > 0 else 0
             
@@ -432,10 +520,11 @@ class StatisticsCalculator:
                 'moyenne_jour': round(moyenne_jour, 1),
                 'taux_objectif': round(taux_objectif, 1),
                 'couverture_annee': round(couverture_annee, 1),
+                'seuil_journalier': int(seuil_journalier),
+                'statut': statut,
                 'annee': annee
             })
         
-        # Trier par performance (taux d'objectif)
         result.sort(key=lambda x: x['taux_objectif'], reverse=True)
         return result
 
@@ -910,27 +999,46 @@ def formulaire_saisie(db: DatabaseManager):
                     st.info(f"Aucune saisie trouvée pour l'archiviste « {archiviste_suppr_groupe} ».")
 
 def afficher_kpis_et_performances(db: DatabaseManager, stats_calc: StatisticsCalculator):
+    """CORRIGÉ: Affichage avec les nouveaux calculs"""
     st.header("📊 Vue d'ensemble")
     kpis = stats_calc.calculer_kpis_globaux()
     perf_jour = stats_calc.calculer_performances_journalieres()
     perf_semaine = stats_calc.calculer_performances_hebdomadaires()
+    
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(label="Stock initial", value=f"{kpis['stock_initial']:,}".replace(",", " "))
     c2.metric(label="Dossiers traités", value=f"{kpis['dossiers_traites']:,}".replace(",", " "))
     c3.metric(label="Stock restant", value=f"{kpis['stock_restant']:,}".replace(",", " "))
     c4.metric(label="% traité", value=f"{kpis['pourcentage_traite']:.1f}%")
+    
     st.markdown("---")
-    st.subheader("⚡ Performances")
-    colj1, colj2, colj3 = st.columns(3)
+    st.subheader("⚡ Performances Journalières")
+    
+    # CORRIGÉ: Affichage avec seuil
+    colj1, colj2, colj3, colj4 = st.columns(4)
     colj1.metric(label="Aujourd'hui", value=perf_jour['dossiers_traites'])
     colj2.metric(label="% réalisé", value=f"{perf_jour['taux_realisation']:.1f}%")
-    colj3.metric(label="Écart", value=f"{perf_jour['ecart']}")
-    colh1, colh2, colh3 = st.columns(3)
+    colj3.metric(label="Seuil (90%)", value=f"{perf_jour['seuil_reussite']}")
+    
+    # Affichage du statut avec icône
+    if perf_jour['objectif_atteint']:
+        colj4.success("🎯 Objectif atteint !")
+    else:
+        colj4.error(f"📉 Écart: {perf_jour['ecart']}")
+    
+    st.subheader("⚡ Performances Hebdomadaires")
+    colh1, colh2, colh3, colh4 = st.columns(4)
     colh1.metric(label="Cette semaine", value=perf_semaine['dossiers_traites'])
     colh2.metric(label="% hebdo", value=f"{perf_semaine['taux_realisation']:.1f}%")
-    colh3.write(f"Période : {perf_semaine['semaine']}")
+    colh3.metric(label="Seuil hebdo", value=f"{perf_semaine['seuil_reussite']}")
+    
+    if perf_semaine['objectif_atteint']:
+        colh4.success("🎯 Objectif atteint !")
+    else:
+        colh4.write(f"Période : {perf_semaine['semaine']}")
 
 def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
+    """CORRIGÉ: Export avec les nouveaux calculs"""
     # Générer le CSV formaté
     kpis = stats_calc.calculer_kpis_globaux()
     traitements = db.obtenir_traitements()
@@ -940,16 +1048,24 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
     total_dossiers = kpis['dossiers_traites']
     taux_reussite = kpis['pourcentage_traite']
     stock_restant = kpis['stock_restant']
-    objectif = int(db.obtenir_parametre('objectif_journalier') or 0)
+    objectif = int(db.obtenir_parametre('objectif_journalier') or 200)
+    seuil_objectif = float(db.obtenir_parametre('seuil_objectif') or 0.9)
+    seuil_journalier = objectif * seuil_objectif  # 180 dossiers
+    
     if jours_ecoules > 0:
         taux_journalier_reel = total_dossiers / jours_ecoules
-        perf_journalier_pct = (taux_journalier_reel / objectif) * 100 if objectif else 0
+        # CORRIGÉ: Calcul selon la nouvelle logique
+        if taux_journalier_reel >= seuil_journalier:
+            perf_journalier_pct = (taux_journalier_reel / objectif) * 100
+        else:
+            perf_journalier_pct = (taux_journalier_reel / seuil_journalier) * 90
         perf_hebdo_pct = perf_journalier_pct
         perf_mensuel_pct = perf_journalier_pct
         perf_annuel_pct = perf_journalier_pct
     else:
         taux_journalier_reel = 0
         perf_journalier_pct = perf_hebdo_pct = perf_mensuel_pct = perf_annuel_pct = 0
+    
     actifs = db.obtenir_archivistes()
     nb_archivistes = len(actifs)
 
@@ -958,7 +1074,7 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
 
     buffer = StringIO()
     writer = csv.writer(buffer, delimiter=';')
-    writer.writerow(["=== ANALYSE TABLEAU DE BORD SERVICE ARCHIVES ==="])
+    writer.writerow(["=== ANALYSE TABLEAU DE BORD SERVICE ARCHIVES (CORRIGÉ) ==="])
     writer.writerow([])
     writer.writerow([" ", " ", " ", " ", " ", " ", " "])  # ligne vide
     writer.writerow(["1. RÉSUMÉ GÉNÉRAL"])
@@ -967,6 +1083,7 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
     writer.writerow(["Stock initial", f"{kpis['stock_initial']}"])
     writer.writerow(["Nombre d'archivistes", f"{nb_archivistes}"])
     writer.writerow(["Objectif journalier", f"{objectif}"])
+    writer.writerow(["Seuil d'atteinte (90%)", f"{int(seuil_journalier)}"])  # NOUVEAU
     writer.writerow(["Taux de réussite (%)", f"{taux_reussite:.1f}"])
     writer.writerow(["Dossiers traités total", f"{total_dossiers}"])
     writer.writerow(["Jours écoulés", f"{jours_ecoules}"])
@@ -979,10 +1096,10 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
     writer.writerow(["Performance annuelle (%)", f"{perf_annuel_pct:.1f}"])
     writer.writerow([])
     writer.writerow([" ", " ", " ", " ", " ", " ", " "])  # vide
-    writer.writerow(["2. PERFORMANCE DES ARCHIVISTES"])
+    writer.writerow(["2. PERFORMANCE DES ARCHIVISTES (CORRIGÉ)"])
     writer.writerow([
         "Nom", "Dossiers_Traités", "Jours_Travaillés", "Taux_Journalier",
-        "Objectif_Individuel", "Performance_%", "Statut"
+        "Objectif_Individuel", "Seuil_90%", "Performance_%", "Statut"
     ])
     for stat in perf_arch:
         nom = stat['archiviste']
@@ -990,16 +1107,13 @@ def export_analyse(db: DatabaseManager, stats_calc: StatisticsCalculator):
         jours = stat['jours_travailles']
         taux_j = (dossiers_t / jours) if jours else 0
         objectif_ind = objectif
-        perf_pct = (taux_j / objectif) * 100 if objectif else 0
-        if perf_pct >= 100:
-            statut = "Excellent"
-        elif perf_pct >= 80:
-            statut = "Correct"
-        else:
-            statut = "En retard"
+        seuil_90 = stat['seuil_journalier']
+        perf_pct = stat['taux_objectif']
+        statut = stat['statut']
+        
         writer.writerow([
             nom, f"{dossiers_t}", f"{jours}", f"{taux_j:.1f}",
-            f"{objectif_ind}", f"{perf_pct:.1f}", statut
+            f"{objectif_ind}", f"{seuil_90}", f"{perf_pct:.1f}", statut
         ])
 
     return buffer.getvalue()
@@ -1058,25 +1172,20 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             st.info("Aucun traitement à afficher pour cet intervalle.")
 
     with tab2:
-        st.write("### 🌐 Performances hebdomadaires par archiviste")
+        st.write("### 🌐 Performances hebdomadaires par archiviste (CORRIGÉ)")
         stats_hebdo = stats_calc.obtenir_performances_hebdo_par_archiviste()
         if stats_hebdo:
             affichage = []
             for i, stat in enumerate(stats_hebdo, start=1):
-                if stat['taux_hebdo'] >= 100:
-                    etat = "🟢 Excellent"
-                elif stat['taux_hebdo'] >= 80:
-                    etat = "🟡 Correct"
-                else:
-                    etat = "🔴 En retard"
                 affichage.append({
                     "Rang": f"#{i}",
                     "Archiviste": stat['archiviste'],
                     "Dossiers": stat['total_dossiers'],
                     "Jours travaillés": stat['jours_travailles'],
                     "Moyenne/J": stat['moyenne_jour'],
-                    "% Hebdo": f"{stat['taux_hebdo']}%",
-                    "État": etat
+                    "% Performance": f"{stat['taux_hebdo']}%",
+                    "Seuil (90%)": stat['seuil_reussite'],
+                    "État": stat['statut']
                 })
             df_h = pd.DataFrame(affichage)
             st.dataframe(df_h, use_container_width=True)
@@ -1084,7 +1193,7 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             st.info("Aucune donnée hebdomadaire pour le moment.")
 
     with tab3:
-        st.write("### 📊 Performances sur 30 derniers jours par archiviste (jours ouvrés)")
+        st.write("### 📊 Performances sur 30 derniers jours par archiviste (CORRIGÉ)")
         stats_30 = stats_calc.obtenir_performances_30j_par_archiviste()
         if stats_30:
             affichage = []
@@ -1094,7 +1203,9 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
                     "Total": stat['total_dossiers'],
                     "Jours travaillés": stat['jours_travailles'],
                     "Moyenne/J": stat['moyenne_jour'],
-                    "% Objectif": f"{stat['taux_objectif']}%"
+                    "% Performance": f"{stat['taux_objectif']}%",
+                    "Seuil (90%)": stat['seuil_journalier'],
+                    "Statut": stat['statut']
                 })
             df_30 = pd.DataFrame(affichage)
             st.dataframe(df_30, use_container_width=True)
@@ -1102,7 +1213,7 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             st.info("Pas assez de données pour calculer les 30 derniers jours.")
 
     with tab4:
-        st.write("### 📅 Performances sur l'année par archiviste (jours ouvrés)")
+        st.write("### 📅 Performances sur l'année par archiviste (CORRIGÉ)")
         
         # Sélecteur d'année
         annee_courante = date.today().year
@@ -1133,25 +1244,16 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
             # Tableau détaillé
             affichage_annee = []
             for i, stat in enumerate(stats_annee, start=1):
-                # Déterminer le statut selon la performance
-                if stat['taux_objectif'] >= 100:
-                    statut = "🟢 Excellent"
-                elif stat['taux_objectif'] >= 80:
-                    statut = "🟡 Correct"
-                elif stat['taux_objectif'] >= 60:
-                    statut = "🟠 Moyen"
-                else:
-                    statut = "🔴 Insuffisant"
-                
                 affichage_annee.append({
                     "Rang": f"#{i}",
                     "Archiviste": stat['archiviste'],
                     "Total dossiers": f"{stat['total_dossiers']:,}".replace(",", " "),
                     "Jours travaillés": stat['jours_travailles'],
                     "Moyenne/jour": stat['moyenne_jour'],
-                    "% Objectif": f"{stat['taux_objectif']}%",
+                    "% Performance": f"{stat['taux_objectif']}%",
+                    "Seuil (90%)": stat['seuil_journalier'],
                     "% Couverture année": f"{stat['couverture_annee']}%",
-                    "Statut": statut
+                    "Statut": stat['statut']
                 })
             
             df_annee = pd.DataFrame(affichage_annee)
@@ -1163,15 +1265,15 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
                 writer = csv.writer(csv_buffer)
                 writer.writerow([
                     "Rang", "Archiviste", "Total_dossiers", "Jours_travailles", 
-                    "Moyenne_jour", "Taux_objectif", "Couverture_annee", "Statut"
+                    "Moyenne_jour", "Taux_performance", "Seuil_90", "Couverture_annee", "Statut"
                 ])
                 for row in affichage_annee:
                     writer.writerow([
                         row["Rang"], row["Archiviste"], 
                         row["Total dossiers"].replace(" ", ""),
                         row["Jours travaillés"], row["Moyenne/jour"],
-                        row["% Objectif"], row["% Couverture année"], 
-                        row["Statut"]
+                        row["% Performance"], row["Seuil (90%)"],
+                        row["% Couverture année"], row["Statut"]
                     ])
                 
                 st.download_button(
@@ -1186,19 +1288,21 @@ def afficher_tableaux(db: DatabaseManager, stats_calc: StatisticsCalculator):
 
     # Bouton d'export d'analyse complet existant
     st.markdown("---")
-    if st.button("⬇️ Exporter Analyse CSV complet"):
+    if st.button("⬇️ Exporter Analyse CSV complet (CORRIGÉ)"):
         csv_data = export_analyse(db, stats_calc)
         st.download_button(
             label="Télécharger fichier d'analyse",
             data=csv_data.encode("latin1"),
-            file_name=f"analyse_archives_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"analyse_archives_corrige_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
 
 def page_parametres(db: DatabaseManager):
+    """CORRIGÉ: Page paramètres avec seuil d'objectif"""
     st.header("⚙️ Paramètres de l'application")
     stock_init = db.obtenir_parametre('stock_initial')
     obj = db.obtenir_parametre('objectif_journalier')
+    seuil = db.obtenir_parametre('seuil_objectif')
     pwd = db.obtenir_parametre('mot_de_passe')
     pwd_app = db.obtenir_parametre('mot_de_passe_app')
     
@@ -1214,9 +1318,24 @@ def page_parametres(db: DatabaseManager):
         new_obj = st.number_input(
             "Objectif journalier :",
             min_value=0,
-            value=int(obj or 0),
+            value=int(obj or 200),  # CORRIGÉ: défaut 200
             step=10
         )
+    
+    # NOUVEAU: Paramètre seuil d'objectif
+    col_seuil, col_info = st.columns([1, 2])
+    with col_seuil:
+        new_seuil = st.slider(
+            "Seuil d'objectif atteint (%) :",
+            min_value=0.5,
+            max_value=1.0,
+            value=float(seuil or 0.9),
+            step=0.05,
+            help="Pourcentage de l'objectif à partir duquel il est considéré comme atteint"
+        )
+    with col_info:
+        seuil_dossiers = int(new_obj * new_seuil)
+        st.info(f"**Avec ces paramètres :**\n- Objectif : {new_obj} dossiers/jour\n- Seuil d'atteinte : {seuil_dossiers} dossiers ({new_seuil*100:.0f}%)")
     
     col3, col4 = st.columns(2)
     with col3:
@@ -1240,6 +1359,7 @@ def page_parametres(db: DatabaseManager):
         else:
             db.mettre_a_jour_parametre('stock_initial', str(new_stock))
             db.mettre_a_jour_parametre('objectif_journalier', str(new_obj))
+            db.mettre_a_jour_parametre('seuil_objectif', str(new_seuil))  # NOUVEAU
             db.mettre_a_jour_parametre('mot_de_passe', new_pwd)
             db.mettre_a_jour_parametre('mot_de_passe_app', new_pwd_app)
             st.success("✅ Paramètres mis à jour.")
@@ -1313,7 +1433,7 @@ def page_archivistes(db: DatabaseManager):
                     st.error(f"❌ Impossible de supprimer : {e}")
 
 def main():
-    st.set_page_config(page_title="CNA – Tableau de Bord Archives", layout="wide")
+    st.set_page_config(page_title="CNA – Tableau de Bord Archives (CORRIGÉ)", layout="wide")
     
     # Initialiser la base de données
     db = DatabaseManager()
@@ -1326,13 +1446,24 @@ def main():
     # Si l'utilisateur est authentifié, continuer avec l'application normale
     stats_calc = StatisticsCalculator(db)
 
-    st.sidebar.title("CNA – Menu")
+    st.sidebar.title("CNA – Menu (CORRIGÉ)")
     # Ajouter un bouton de déconnexion
     if st.sidebar.button("🚪 Se déconnecter"):
         st.session_state.authenticated = False
         st.rerun()
     
     st.sidebar.markdown("---")
+    
+    # NOUVEAU: Afficher les paramètres actuels dans la sidebar
+    objectif = int(db.obtenir_parametre('objectif_journalier') or 200)
+    seuil = float(db.obtenir_parametre('seuil_objectif') or 0.9)
+    seuil_dossiers = int(objectif * seuil)
+    
+    st.sidebar.info(f"""
+    **Paramètres actuels :**
+    - Objectif : {objectif} dossiers/jour
+    - Seuil : {seuil_dossiers} dossiers ({seuil*100:.0f}%)
+    """)
     
     section = st.sidebar.radio(
         "Navigation",
@@ -1378,7 +1509,7 @@ def main():
         st.markdown("""
         <div class="header-container">
             <h1 class="header-title">🗃️ Centre National des Archives</h1>
-            <p class="header-subtitle">Système de Gestion Documentaire</p>
+            <p class="header-subtitle">Système de Gestion Documentaire (Version Corrigée)</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1386,6 +1517,14 @@ def main():
         st.markdown("""
         <p class="welcome-text">🔥 Bienvenue dans le tableau de gestion du traitement physique 🔥</p>
         """, unsafe_allow_html=True)
+        
+        # NOUVEAU: Afficher la correction apportée
+        st.success("""
+        ✅ **Version corrigée :**
+        - Objectif journalier : 200 dossiers par jour
+        - Seuil d'atteinte : 90% (180 dossiers) = objectif atteint
+        - Calculs de performance mis à jour
+        """)
 
         # Navigation avec Streamlit natif - plus fiable
         st.markdown("### 📋 Navigation Principale")
@@ -1399,7 +1538,7 @@ def main():
             📝 Enregistrer, modifier ou supprimer des traitements de dossiers physiques
             
             **📊 Vue d'ensemble**  
-            📈 Consulter les KPIs et performances globales
+            📈 Consulter les KPIs et performances globales (avec seuil 90%)
             
             **📋 Détail**  
             📊 Historique des traitements et performances par archiviste
@@ -1408,7 +1547,7 @@ def main():
         with col2:
             st.markdown("""
             **⚙️ Paramètres**  
-            🔧 Configurer stock initial, objectifs & mots de passe
+            🔧 Configurer stock initial, objectifs, seuil & mots de passe
             
             **👥 Archivistes**  
             👨‍💼 Gérer la liste des archivistes du CNA
@@ -1433,12 +1572,12 @@ def main():
         
         with col2:
             st.success("""
-            **📈 Performances**
+            **📈 Performances (CORRIGÉ)**
             
+            • Objectif : 200 dossiers/jour
+            • Seuil d'atteinte : 180 dossiers (90%)
             • Analyse hebdomadaire, mensuelle, annuelle
-            • Classement des archivistes
-            • Tableaux de bord détaillés
-            • Export des analyses
+            • Calculs de performance corrigés
             """)
         
         with col3:
@@ -1446,9 +1585,9 @@ def main():
             **🎯 Objectifs**
             
             • Suivi des objectifs journaliers
-            • Progression globale
+            • Progression globale avec seuil 90%
             • Gestion individuelle des saisies
-            • Suppression groupée ou individuelle
+            • Export des analyses corrigées
             """)
 
         # Métriques rapides en bas de page
@@ -1480,8 +1619,8 @@ def main():
         
         with metric_col4:
             st.metric(
-                label="📋 Restant", 
-                value=f"{kpis['stock_restant']:,}".replace(",", " ")
+                label="🎯 Seuil quotidien", 
+                value=f"{seuil_dossiers} dossiers"
             )
 
         # Sidebar admin
